@@ -1,0 +1,54 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
+        "This file is @generated automatically"
+    ],
+    "hash": "31e4ef64503aec4641384226f60661b0",
+    "content-hash": "52146f2bed6c7df7a2fafef16a1c36af",
+    "packages": [
+        {
+            "name": "bkuhl/php-selector",
+            "version": "v1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/bkuhl/php-selector.git",
+                "reference": "30939018078fd3ce593331ad746f64022a5faef5"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/bkuhl/php-selector/zipball/30939018078fd3ce593331ad746f64022a5faef5",
+                "reference": "30939018078fd3ce593331ad746f64022a5faef5",
+                "shasum": ""
+            },
+            "require-dev": {
+                "phpunit/phpunit": "~6.4"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "PHPSelector\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Ben Kuhl",
+                    "email": "benkuhl@gmail.com"
+                }
+            ],
+            "time": "2017-10-13 14:53:09"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": []
+}

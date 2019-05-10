@@ -1,0 +1,5 @@
+{
+    "require": {
+        "bkuhl/php-selector": "~1.0"
+    }
+}
