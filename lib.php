@@ -1,11 +1,12 @@
 <?php
 namespace sra_lib;
-
 require_once (__DIR__ . '/vendor/autoload.php');
 
 use function array_pop;
 use function array_push;
 use function array_shift;
+use function gettype;
+use function http_build_query;
 use function in_array;
 use PHPSelector\Dom;
 use function curl_init;
@@ -13,6 +14,7 @@ use function curl_setopt;
 use function file_exists;
 use function json_encode;
 use function print_help_info;
+use function str_replace;
 use function strpos;
 use function var_dump;
 const CSV_INDEX_DOC_NUMBER = 0;
@@ -137,17 +139,69 @@ function _node_list_map(\DOMNodeList $list, callable $f): array {
     return $results;
 }
 
+function extract_academic_resolution($student_folder_html) {
+    $doc = new \DOMDocument();
+    $doc->loadHTML($student_folder_html);
+    $finder = new \DomXPath($doc);
+    $name = 'hia_rep_codigo';
+    $possible_resolucion_input = $finder->query("//*[contains(concat(' ', normalize-space(@name), ' '), ' $name')]");
+    $resolution_val = $possible_resolucion_input->item(0)->getAttribute('value');
+    return $resolution_val;
+}
+
+
+function get_student_resolution($cookie_value, $student_code, $per_codigo, $name, $lastname, $program_code, $sed_code, $jornada) {
+    $html = _get_student_folder_html($cookie_value, $student_code, $per_codigo, $name, $lastname, $program_code, $sed_code, $jornada);
+    return extract_academic_resolution($html);
+}
+
+
+function _get_student_folder_html($cookie_value, $student_code, $per_codigo, $name, $lastname, $program_code, $sed_code, $jornada) {
+    $_name = str_replace(" ", '+', $name);
+    $_lastname = str_replace(' ', '+', $lastname);
+    $_name  = str_replace("Ñ","%D1",$_name);
+    $_lastname = str_replace("Ñ","%D1",$_lastname);
+    $encoded_params = "deu_est_per_codigo=$per_codigo&codigo_estudiante=$student_code&wincombomep_codigo_estudiante=$_name++$_lastname+-%3E+$program_code-$sed_code-$jornada&modulo=Academica&accion=Consultar+Estudiante";
+    $curl = curl_init('https://swebse32.univalle.edu.co/sra//paquetes/academica/index.php');
+    curl_setopt($curl, CURLOPT_ENCODING ,"UTF-8");
+    curl_setopt($curl, CURLOPT_POST, true);
+    curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+
+    curl_setopt($curl, CURLOPT_POSTFIELDS, $encoded_params);
+    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($curl, CURLOPT_HTTPHEADER, array(
+        "Cookie: $cookie_value",
+        "User-Agent"=>"Mozilla/5.0 (X11; Linux x86_64; rv:67.0) Gecko/20100101 Firefox/67.0",
+        "Accept"=>"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Content-Type"=> "application/x-www-form-urlencoded",
+        "Conection"=>"keep-alive",
+        "Upgrade-Insecure-Requests"=>"1"
+    ));
+    $resp = utf8_encode(curl_exec($curl));
+    curl_close($curl);
+    return $resp;
+}
+
 /**
- * @param $doc_number
+ * @param $student_search_result StudentSearchResult
  * @param $student_info ConsultaHistorialAcademicoInput
  * @param $cookie_value
  * @return RegistrosHistorialAcademico
  *
  */
-function get_academic_history($doc_number, $student_info, $cookie_value): RegistrosHistorialAcademico {
+function get_academic_history($student_search_result, $student_info, $cookie_value): RegistrosHistorialAcademico {
+    $student_info->hia_rep_codigo = get_student_resolution(
+        $cookie_value,
+        $student_info->hia_est_codigo,
+        $student_info->hia_per_codigo,
+        $student_search_result->nombre,
+        $student_search_result->apellidos,
+        $student_info->hia_pra_codigo,
+        $student_search_result->sede,
+        $student_info->hia_jor_codigo);
     $html = _get_academic_history_html($student_info, $cookie_value);
 
-    $history_registry = _extract_academic_history($doc_number, $student_info->hia_pra_codigo, $html);
+    $history_registry = _extract_academic_history($student_search_result->documento, $student_info->hia_pra_codigo, $html);
     return $history_registry;
 }
 /**
@@ -193,10 +247,11 @@ function _extract_academic_history($doc_number, $program_code, string $academic_
         
         $tr_final_grade_to_nota = function (\DOMElement $tr_grade): RegistroNota {
             $nota = new RegistroNota();
+            echo '<pre>';
             $codigo_index = 0;
-            $grupo_index = 1;
-            $nombre_index = 2;
-            $nota_index = 4;
+            $grupo_index = 2;
+            $nombre_index = 4;
+            $nota_index = 1;
             $creditos_index = 8;
             $fecha_cancelacion_index = 9;
             $fecha_reactivacion_index = 10;
@@ -251,18 +306,8 @@ function _extract_academic_history($doc_number, $program_code, string $academic_
             return false;
         };
         $get_period_name = function(\DOMElement $period_table) {
-
-            $tmp_dom = new \DOMDocument();
-            $tmp_dom->appendChild($tmp_dom->importNode($period_table));
-
-            return $tmp_dom->childNodes->item(0)
-                  ->getElementsByTagName('tbody')
-                  ->item(0)
-              ->getElementsByTagName('tr')
-              ->item(0)
-              ->getElementsByTagName('td')
-              ->item(0)
-              ->nodeValue;
+            $period_table_td = $period_table->getElementsByTagName('td')->item(0);
+            return  $period_table_td->getElementsByTagName('font')->item(0)->nodeValue;
         };
         $get_low_academic_performance = function (\DOMElement $period_table) use ($is_low_performance_form) {
             $table_forms = $period_table->getElementsByTagName('form');
@@ -295,7 +340,7 @@ function _extract_academic_history($doc_number, $program_code, string $academic_
             $doc_number,
             $program_code) {
             $registro_historial = new RegistroHistorialAcademico();
-            //$registro_historial->nombre_periodo = $get_period_name($table);
+            $registro_historial->nombre_periodo = $get_period_name($table);
             $registro_historial->promedio = $get_semester_average($table);
             $registro_historial->numero_documento = $doc_number;
             $registro_historial->codigo_programa_univalle = $program_code;
@@ -327,7 +372,7 @@ function _extract_academic_history($doc_number, $program_code, string $academic_
         };
         $dom = new \DomDocument;
 
-        $dom->loadHTML($academic_html);
+        $dom->loadHTML('<?xml encoding="utf-8" ?>'.$academic_html);
         $period_tables = $get_period_tables($dom);
         $lista_registros_historial_academico = _node_list_map($period_tables->childNodes,
             function($table) use ($dom, $period_table_to_registro_historial_academico) {
@@ -342,6 +387,49 @@ function _extract_academic_history($doc_number, $program_code, string $academic_
 }
 
 
+
+function generar_consulta_historial_academico_2019($codigo, $per_codigo, $programa_codigo, $sed_codigo, $jornada) {
+    return new ConsultaHistorialAcademicoInput(
+        $codigo,
+        $per_codigo,
+        $programa_codigo,
+        $sed_codigo,
+        476, // Resolución 2019,
+        'COMPLETA',
+        $jornada
+    );
+}
+
+
+/**
+ * Class StudentSearchResult
+ * @property $codigo_persona string
+ * @property $codigo_estudiante string
+ * @property $documento string
+ * @property $sede string Ejemplo 00
+ * @property $nombre string
+ * @property $apellidos string
+ * @property $tipo_documento
+ * @property $programa string
+ * @property $jornada string Ejemplo: DIU
+ */
+class StudentSearchResult{}
+
+/**
+ * Class StudentInputCSV
+ * @property $doc_number
+ * @property $name
+ * @property $last_name
+ * @property $program_code
+ */
+class StudentInputCSV{}
+
+
+/**
+ * Todods los estudiantes con seguimiento de el semestre pasado, con profesional asignado
+ *
+ * Salida: quienes están matriculados en el periodo 2019-1
+ */
 /**
  * Class ConsultaHistorialAcademicoInput
  * @package sra_lib
@@ -398,7 +486,7 @@ class ConsultaHistorialAcademicoInput {
     public $versionImprimible;
     public function __construct($hia_est_codigo, $hia_per_codigo, $hia_pra_codigo, $hia_sed_codigo, $hia_rep_codigo, $tipo_carpeta = 'COMPLETA', $hia_jor_codigo='DIU')
     {
-        $this->accion = 'MostrarUnaHistoriaAcademica';
+        $this->accion = 'mostrarDetalleUnaCarpeta';
         $this->hia_est_codigo = $hia_est_codigo;
         $this->hia_pra_codigo = $hia_pra_codigo;
         $this->hia_per_codigo = $hia_per_codigo;
@@ -417,55 +505,26 @@ class ConsultaHistorialAcademicoInput {
 
 }
 
-function generar_consulta_historial_academico_2019($codigo, $per_codigo, $programa_codigo, $sed_codigo = '00') {
-    return new ConsultaHistorialAcademicoInput(
-        $codigo,
-        $per_codigo,
-        $programa_codigo,
-        $sed_codigo,
-        476 // Resolución 2019
-    );
-}
 
 
-/**
- * Class StudentSearchResult
- * @property $codigo_persona string
- * @property $codigo_estudiante string
- * @property $documento string
- * @property $sede string Ejemplo 00
- * @property $nombre string
- * @property $apellidos string
- * @property $tipo_documento
- * @property $programa string
- * @property $jornada string Ejemplo: DIU
- */
-class StudentSearchResult{}
-
-/**
- * Class StudentInputCSV
- * @property $doc_number
- * @property $name
- * @property $last_name
- * @property $program_code
- */
-class StudentInputCSV{}
 
 function _get_academic_history_html(ConsultaHistorialAcademicoInput $input, $cookie_value) {
-    $curl = curl_init('https://swebse32.univalle.edu.co/sra/paquetes/academica/index.php');
+
+
+
+    header('Content-Type: text/html; charset=utf-8');
+    $curl = curl_init('https://swebse32.univalle.edu.co/sra//paquetes/academica/index.php');
+    curl_setopt($curl, CURLOPT_ENCODING ,"UTF-8");
     curl_setopt($curl, CURLOPT_POST, TRUE);
     curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
 
     $post_intput = $input->get_url_query();
-    //echo $post_intput;die;
     curl_setopt($curl, CURLOPT_POSTFIELDS, $post_intput);
-    curl_setopt($curl, CURLOPT_ENCODING, 'UTF-8');
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($curl, CURLOPT_HTTPHEADER, array(
         "Cookie: $cookie_value",
         "User-Agent"=>"Mozilla/5.0 (X11; Linux x86_64; rv:67.0) Gecko/20100101 Firefox/67.0",
         "Accept"=>"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language" =>  "en-US,en;q=0.5",
         "Content-Type"=> "application/x-www-form-urlencoded",
         "Conection"=>"keep-alive",
         "Upgrade-Insecure-Requests"=>"1"
@@ -664,9 +723,12 @@ function get_students_result($table): array {
 function get_student_search_results($info_student, $cookie_value): array {
     $st_apellidos = str_replace(" ","+",$info_student->last_name);
     $st_nombres = str_replace(" ","+",$info_student->name);
+    $st_apellidos = str_replace("Ñ","%D1",$st_apellidos);
+    $st_nombres = str_replace("Ñ","%D1",$st_nombres);
     $param = $st_apellidos.'-'.$st_nombres;
     $html = get_student_information($param, $cookie_value);
-    return get_student_search_result_from_html($html, $info_student->program_code);
+    $results =  get_student_search_result_from_html($html, $info_student->program_code);
+    return $results;
 }
 
 /**

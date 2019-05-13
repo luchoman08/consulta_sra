@@ -1,11 +1,12 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 require_once(__DIR__ .'/lib.php');
 require_once(__DIR__ .'/mocks/html_historial_academico.php');
 const CSV_NAME_DEFAULT = 'students.csv';
 const CSV_ROUTE_PARAM = 'csv-route';
 const CSV_COOKIE_PARAM = 'cookie';
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+
 $CSV_COOKIE_PARAM = 'cookie';
 
 use function sra_lib\{extract_academic_history,
@@ -45,39 +46,39 @@ $cookie_value = isset($options[CSV_COOKIE_PARAM])? $options[CSV_COOKIE_PARAM]: d
 $list_student_csv = read_student_info_csv('students.csv', true);
 $list_student_info = array();
 
-foreach($list_student_csv as $info_student)
+foreach($list_student_csv as $key => $info_student)
 {
-    $info_student_active = get_student_search_results($info_student, $cookie_value)[0];
+    $info_student_active = array_shift(get_student_search_results($info_student, $cookie_value));
     array_push($list_student_info, $info_student_active);
 }
-print_r($list_student_info);
 /** @var  $info_student StudentSearchResult */
 $academic_histories = array();
 
 
-
-foreach($list_student_info as $info_student) {
-
-    $input_history_academic_query = generar_consulta_historial_academico_2019(
-        $info_student->codigo_estudiante,
-        $info_student->codigo_persona,
-        $info_student->programa,
-        $info_student->sede
+$error_num_docs = array();
+foreach($list_student_info as $key => $info_student) {
+    try {
+        $input_history_academic_query = generar_consulta_historial_academico_2019(
+            $info_student->codigo_estudiante,
+            $info_student->codigo_persona,
+            $info_student->programa,
+            $info_student->sede,
+            $info_student->jornada
         );
-    $academic_history = get_academic_history($info_student->documento, $input_history_academic_query, $cookie_value);
-    array_push($academic_histories, $academic_history);
+        $academic_history = get_academic_history($info_student, $input_history_academic_query, $cookie_value);
+        echo '<div class="academic_history">';
+        echo json_encode($academic_history);
+        echo '</div>';
+        array_push($academic_histories, $academic_history);
+    } catch(Exception $e) {
+        array_push($error_num_docs, $info_student->documento);
+    }
 }
-print_r($academic_histories);
- //echo $inputPost->get_url_query();die;
+echo '<br/>';
+echo '<div class="academic_histories">';
+print_r(json_encode($academic_histories));
+echo '</div>';
+echo '<br />';
 
-/*
-foreach($student_names_arr as $info_student)
-{
-    $info_student_active = search_student_info($cookie_value, $info_student);
-    array_push($list_student, $info_student_active);
-}*/
 
-//print_r(get_academic_history($inputPost, $cookie_value));
-//echo json_encode($inputPost);die;
-//echo "Trying to write student information <br />";
-//write_student_information_to_csv($list_student);
+print_r($error_num_docs);
